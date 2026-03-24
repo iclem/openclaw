@@ -20,6 +20,7 @@ export const NextcloudTalkRoomSchema = z
     enabled: z.boolean().optional(),
     allowFrom: z.array(z.string()).optional(),
     systemPrompt: z.string().optional(),
+    ackReaction: z.string().optional(),
   })
   .strict();
 
@@ -43,6 +44,7 @@ export const NextcloudTalkAccountSchemaBase = z
     groupAllowFrom: z.array(z.string()).optional(),
     groupPolicy: GroupPolicySchema.optional().default("allowlist"),
     rooms: z.record(z.string(), NextcloudTalkRoomSchema.optional()).optional(),
+    ackReaction: z.string().optional(),
     ...ReplyRuntimeConfigSchemaShape,
   })
   .strict();
