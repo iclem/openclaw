@@ -97,6 +97,7 @@ export {
   formatTextWithAttachmentLinks,
   resolveOutboundMediaUrls,
 } from "./reply-payload.js";
+export { resolveAckReaction } from "../agents/identity.js";
 export { dispatchInboundReplyWithBase } from "./inbound-reply-dispatch.js";
 export { createLoggerBackedRuntime } from "./runtime.js";
 export {
