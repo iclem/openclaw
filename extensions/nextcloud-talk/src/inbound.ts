@@ -6,6 +6,7 @@ import {
   logInboundDrop,
   readStoreAllowFromForDmPolicy,
   resolveDmGroupAccessWithCommandGate,
+  resolveAckReaction,
   resolveAllowlistProviderRuntimeGroupPolicy,
   resolveDefaultGroupPolicy,
   warnMissingProviderGroupPolicyFallbackOnce,
@@ -24,7 +25,7 @@ import {
 } from "./policy.js";
 import { resolveNextcloudTalkRoomKind } from "./room-info.js";
 import { getNextcloudTalkRuntime } from "./runtime.js";
-import { sendMessageNextcloudTalk } from "./send.js";
+import { sendMessageNextcloudTalk, sendReactionNextcloudTalk } from "./send.js";
 import type { CoreConfig, GroupPolicy, NextcloudTalkInboundMessage } from "./types.js";
 
 export type NextcloudTalkMentionEntry = {
@@ -347,6 +348,19 @@ export async function handleNextcloudTalkInbound(params: {
       id: isGroup ? roomToken : senderId,
     },
   });
+
+  // Best-effort acknowledgment reaction using shared resolveAckReaction (same as Discord/Slack/Telegram).
+  const ackEmoji = resolveAckReaction(config as OpenClawConfig, route.agentId, {
+    channel: "nextcloud-talk",
+    accountId: account.accountId,
+  });
+  if (ackEmoji) {
+    sendReactionNextcloudTalk(roomToken, message.messageId, ackEmoji, {
+      accountId: account.accountId,
+    }).catch((err: unknown) => {
+      runtime.log?.(`nextcloud-talk: ack reaction failed: ${String(err)}`);
+    });
+  }
 
   const fromLabel = isGroup ? `room:${roomName || roomToken}` : senderName || `user:${senderId}`;
   const storePath = core.channel.session.resolveStorePath(

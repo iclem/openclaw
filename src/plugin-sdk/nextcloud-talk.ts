@@ -104,3 +104,4 @@ export {
   buildRuntimeAccountStatusSnapshot,
 } from "./status-helpers.js";
 export { jsonResult, readReactionParams, readStringParam } from "../agents/tools/common.js";
+export { resolveAckReaction } from "../agents/identity.js";
