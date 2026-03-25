@@ -2155,7 +2155,11 @@ export const GENERATED_BUNDLED_PLUGIN_METADATA = [
       configSchema: {
         type: "object",
         additionalProperties: false,
-        properties: {},
+        properties: {
+          ackReaction: {
+            type: "string",
+          },
+        },
       },
       channels: ["nextcloud-talk"],
     },
