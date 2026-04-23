@@ -43,9 +43,12 @@ describe("stripThinkingTags", () => {
     expect(stripThinkingTags(input)).toBe("Hello");
   });
 
-  it("keeps text when tags are unpaired", () => {
-    expect(stripThinkingTags("<think>\nsecret\nHello")).toBe("secret\nHello");
-    expect(stripThinkingTags("Hello\n</think>")).toBe("Hello\n");
+  it("suppresses text after an unclosed <think> tag", () => {
+    expect(stripThinkingTags("<think>\nsecret\nHello")).toBe("");
+  });
+
+  it("removes stray closing thinking tags without leaking them", () => {
+    expect(stripThinkingTags("Hello\n</think>")).toBe("Hello");
   });
 
   it("returns original text when no tags exist", () => {
@@ -54,7 +57,7 @@ describe("stripThinkingTags", () => {
 
   it("strips <final>…</final> segments", () => {
     const input = "<final>\n\nHello there\n\n</final>";
-    expect(stripThinkingTags(input)).toBe("Hello there\n\n");
+    expect(stripThinkingTags(input)).toBe("Hello there");
   });
 
   it("strips mixed <think> and <final> tags", () => {
@@ -67,6 +70,15 @@ describe("stripThinkingTags", () => {
     // This should not crash and should handle gracefully
     expect(stripThinkingTags("<final\nHello")).toBe("<final\nHello");
     expect(stripThinkingTags("Hello</final>")).toBe("Hello");
+  });
+
+  it("hides malformed replies that leave <think> open", () => {
+    const input = [
+      "<think>The user asked me to think.",
+      "",
+      "Visible answer that should stay hidden until the provider closes thinking.",
+    ].join("\n");
+    expect(stripThinkingTags(input)).toBe("");
   });
 
   it("strips <relevant-memories> blocks", () => {
@@ -96,7 +108,7 @@ describe("stripThinkingTags", () => {
 
   it("hides unfinished <relevant-memories> block tails", () => {
     const input = ["Hello", "<relevant-memories>", "internal-only"].join("\n");
-    expect(stripThinkingTags(input)).toBe("Hello\n");
+    expect(stripThinkingTags(input)).toBe("Hello");
   });
 });
 

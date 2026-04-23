@@ -11,6 +11,7 @@ import {
 } from "../../../../src/chat/tool-content.js";
 import { mediaKindFromMime } from "../../../../src/media/constants.js";
 import { splitMediaFromOutput } from "../../../../src/media/parse.js";
+import { sanitizeAssistantVisibleText } from "../../../../src/shared/text/assistant-visible-text.js";
 import { parseInlineDirectives } from "../../../../src/utils/directive-tags.js";
 import type { NormalizedMessage, MessageContentItem } from "../types/chat-types.ts";
 
@@ -233,6 +234,10 @@ function expandTextContent(text: string): {
   };
 }
 
+function expandAssistantTextContent(text: string) {
+  return expandTextContent(sanitizeAssistantVisibleText(text));
+}
+
 /**
  * Normalize a raw message object into a consistent structure.
  */
@@ -267,7 +272,7 @@ export function normalizeMessage(message: unknown): NormalizedMessage {
 
   if (typeof m.content === "string") {
     if (isAssistantMessage) {
-      const expanded = expandTextContent(m.content);
+      const expanded = expandAssistantTextContent(m.content);
       content = expanded.content;
       audioAsVoice = expanded.audioAsVoice;
       replyTarget = expanded.replyTarget;
@@ -331,7 +336,7 @@ export function normalizeMessage(message: unknown): NormalizedMessage {
         ];
       }
       if (item.type === "text" && typeof item.text === "string" && isAssistantMessage) {
-        const expanded = expandTextContent(item.text);
+        const expanded = expandAssistantTextContent(item.text);
         audioAsVoice = audioAsVoice || expanded.audioAsVoice;
         if (expanded.replyTarget?.kind === "id") {
           replyTarget = expanded.replyTarget;
@@ -355,7 +360,7 @@ export function normalizeMessage(message: unknown): NormalizedMessage {
     });
   } else if (typeof m.text === "string") {
     if (isAssistantMessage) {
-      const expanded = expandTextContent(m.text);
+      const expanded = expandAssistantTextContent(m.text);
       content = expanded.content;
       audioAsVoice = expanded.audioAsVoice;
       replyTarget = expanded.replyTarget;

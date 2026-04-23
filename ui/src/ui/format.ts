@@ -1,6 +1,6 @@
 import { formatDurationHuman } from "../../../src/infra/format-time/format-duration.ts";
 import { formatRelativeTimestamp } from "../../../src/infra/format-time/format-relative.ts";
-import { stripAssistantInternalScaffolding } from "../../../src/shared/text/assistant-visible-text.js";
+import { sanitizeAssistantVisibleText } from "../../../src/shared/text/assistant-visible-text.js";
 import { t } from "../i18n/index.ts";
 
 export { formatRelativeTimestamp, formatDurationHuman };
@@ -81,7 +81,7 @@ export function toNumber(value: string, fallback: number): number {
 }
 
 export function stripThinkingTags(value: string): string {
-  return stripAssistantInternalScaffolding(value);
+  return sanitizeAssistantVisibleText(value);
 }
 
 export function formatCost(cost: number | null | undefined, fallback = "$0.00"): string {

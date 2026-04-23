@@ -1,6 +1,7 @@
 import { stripLeadingInboundMetadata } from "../auto-reply/reply/strip-inbound-meta.js";
 import { formatRawAssistantErrorForUi } from "../shared/assistant-error-format.js";
 import { extractAssistantVisibleText } from "../shared/chat-message-content.js";
+import { stripAssistantInternalScaffolding } from "../shared/text/assistant-visible-text.js";
 import { stripAnsi } from "../terminal/ansi.js";
 import { formatTokenCount } from "../utils/usage-format.js";
 
@@ -273,12 +274,7 @@ export function extractContentFromMessage(message: unknown): string {
   const { record, content } = resolved;
 
   if (record.role === "assistant") {
-    if (typeof content === "string") {
-      return sanitizeRenderableText(content).trim();
-    }
-    if (Array.isArray(content)) {
-      return extractAssistantRenderableContent(record);
-    }
+    return extractAssistantRenderableContent(record);
   }
 
   if (typeof content === "string") {
@@ -297,7 +293,9 @@ export function extractContentFromMessage(message: unknown): string {
 }
 
 function extractAssistantRenderableContent(record: Record<string, unknown>): string {
-  const visible = sanitizeRenderableText(extractAssistantVisibleText(record) ?? "").trim();
+  const visible = sanitizeRenderableText(
+    stripAssistantInternalScaffolding(extractAssistantVisibleText(record) ?? ""),
+  ).trim();
   if (visible) {
     return visible;
   }

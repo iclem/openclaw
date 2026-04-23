@@ -224,6 +224,34 @@ describe("grouped chat rendering", () => {
     expect(avatar?.getAttribute("src")).toBe("/openclaw-logo.svg");
   });
 
+  it("does not render leaked final tags in assistant bubbles", () => {
+    const container = document.createElement("div");
+
+    renderAssistantMessage(container, {
+      role: "assistant",
+      content: "<final>My working directory inside the container is /workspace.",
+      timestamp: 1000,
+    });
+
+    expect(container.textContent).toContain(
+      "My working directory inside the container is /workspace.",
+    );
+    expect(container.textContent).not.toContain("<final>");
+  });
+
+  it("does not render leaked thinking text in assistant bubbles when <think> stays open", () => {
+    const container = document.createElement("div");
+
+    renderAssistantMessage(container, {
+      role: "assistant",
+      content: "<think>private reasoning\n\nVisible answer",
+      timestamp: 1000,
+    });
+
+    expect(container.textContent).not.toContain("<think>");
+    expect(container.textContent).not.toContain("private reasoning");
+  });
+
   it("keeps inline tool cards collapsed by default and renders expanded state", () => {
     const container = document.createElement("div");
     const message = {

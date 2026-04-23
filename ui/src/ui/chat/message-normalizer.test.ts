@@ -98,6 +98,26 @@ describe("message-normalizer", () => {
       expect(result.content).toEqual([{ type: "text", text: "Alternative format" }]);
     });
 
+    it("strips reasoning tags from assistant string content", () => {
+      const result = normalizeMessage({
+        role: "assistant",
+        content: "<final>My working directory inside the container is /workspace.",
+      });
+
+      expect(result.content).toEqual([
+        { type: "text", text: "My working directory inside the container is /workspace." },
+      ]);
+    });
+
+    it("hides assistant string content when a <think> block never closes", () => {
+      const result = normalizeMessage({
+        role: "assistant",
+        content: "<think>private reasoning\n\nVisible answer",
+      });
+
+      expect(result.content).toEqual([]);
+    });
+
     it("expands [embed] shortcodes into canvas blocks", () => {
       const result = normalizeMessage({
         role: "assistant",
@@ -182,6 +202,24 @@ describe("message-normalizer", () => {
           },
         },
       ]);
+    });
+
+    it("strips reasoning tags from assistant text blocks", () => {
+      const result = normalizeMessage({
+        role: "assistant",
+        content: [{ type: "text", text: "<final>Visible text</final>" }],
+      });
+
+      expect(result.content).toEqual([{ type: "text", text: "Visible text" }]);
+    });
+
+    it("hides assistant text blocks when a <think> block never closes", () => {
+      const result = normalizeMessage({
+        role: "assistant",
+        content: [{ type: "text", text: "<think>private reasoning\n\nVisible answer" }],
+      });
+
+      expect(result.content).toEqual([]);
     });
 
     it("marks media-only audio attachments as voice notes when audio_as_voice is present", () => {

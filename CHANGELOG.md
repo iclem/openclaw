@@ -19,6 +19,8 @@ Docs: https://docs.openclaw.ai
 
 ### Fixes
 
+- Control UI: strip leaked `<think>`/`<final>` scaffolding from assistant chat bubbles so reasoning-tag providers no longer show raw tags in the web chat.
+- TUI: strip leaked `<think>`/`<final>` scaffolding from assistant history and streaming text so reasoning-tag providers no longer show raw tags in terminal chats.
 - Pi embedded runs: pass real built-in tools into Pi session creation and then narrow active tool names after custom tool registration, so the runner and compaction paths compile cleanly and keep OpenClaw-managed custom tool allowlists without feeding string arrays into `createAgentSession`. Thanks @vincentkoc.
 - Agents/OpenAI websocket: route native OpenAI websocket metadata and session-header decisions through the shared endpoint classifier so local mocks and custom `models.providers.openai.baseUrl` endpoints stay out of the native OpenAI path consistently across embedded-runner and websocket transport code. Thanks @vincentkoc.
 - MCP/gateway: tear down stdio MCP process trees on transport close and dispose bundled MCP runtimes during session delete/reset, preventing orphaned wrapper/server processes from accumulating. Fixes #68809 and #69465.

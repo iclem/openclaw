@@ -74,6 +74,15 @@ describe("extractTextFromMessage", () => {
     expect(text).toBe("Line 1\nLine 2\nLine 3");
   });
 
+  it("strips reasoning tags from assistant string content", () => {
+    const text = extractTextFromMessage({
+      role: "assistant",
+      content: "<think>private</think><final>Hello</final>",
+    });
+
+    expect(text).toBe("Hello");
+  });
+
   it("preserves internal newlines for text blocks", () => {
     const text = extractTextFromMessage({
       role: "assistant",
@@ -264,6 +273,15 @@ describe("extractContentFromMessage", () => {
     });
 
     expect(text).toBe("hello");
+  });
+
+  it("strips reasoning tags from assistant text blocks", () => {
+    const text = extractContentFromMessage({
+      role: "assistant",
+      content: [{ type: "text", text: "<think>private</think><final>Hello</final>" }],
+    });
+
+    expect(text).toBe("Hello");
   });
 
   it("renders error text when stopReason is error and content is not an array", () => {

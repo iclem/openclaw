@@ -106,6 +106,17 @@ describe("TuiStreamAssembler", () => {
     expect(second).toBeNull();
   });
 
+  it("strips reasoning tags from streamed assistant text", () => {
+    const assembler = new TuiStreamAssembler();
+    const output = assembler.ingestDelta(
+      "run-tagged",
+      messageWithContent([text("<think>private</think><final>Hello</final>")]),
+      false,
+    );
+
+    expect(output).toBe("Hello");
+  });
+
   it("keeps streamed delta text when incoming tool boundary drops a block", () => {
     const assembler = new TuiStreamAssembler();
     const first = assembler.ingestDelta("run-delta-boundary", TEXT_ONLY_TWO_BLOCKS, false);
