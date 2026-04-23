@@ -106,6 +106,7 @@ export {
   formatTextWithAttachmentLinks,
   resolveOutboundMediaUrls,
 } from "./reply-payload.js";
+export { resolveAckReaction } from "../agents/identity.js";
 export { dispatchInboundReplyWithBase } from "./inbound-reply-dispatch.js";
 export { createLoggerBackedRuntime } from "./runtime-logger.js";
 export {
@@ -118,3 +119,4 @@ export {
   resolveSetupAccountId,
   setSetupChannelEnabled,
 } from "../channels/plugins/setup-wizard-helpers.js";
+export { jsonResult, readReactionParams, readStringParam } from "../agents/tools/common.js";

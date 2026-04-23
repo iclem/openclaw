@@ -20,11 +20,27 @@ export type NextcloudTalkRoomConfig = {
   allowFrom?: string[];
   /** Optional system prompt snippet for this room. */
   systemPrompt?: string;
+  /** Emoji to auto-react with on every received message (best-effort acknowledgment). */
+  ackReaction?: string;
+  /**
+   * If true, send typing indicators while the bot is processing.
+   * Requires Nextcloud Talk with bot typing indicator support.
+   * Defaults to the account-level typingIndicator setting.
+   */
+  typingIndicator?: boolean;
 };
 
 export type NextcloudTalkNetworkConfig = {
   /** Dangerous opt-in for self-hosted Nextcloud Talk on trusted private/internal hosts. */
   dangerouslyAllowPrivateNetwork?: boolean;
+};
+
+/** Represents a typing indicator signal sent by the bot. */
+export type NextcloudTalkTypingIndicator = {
+  /** Whether the bot is currently typing (true = started, false = stopped). */
+  typing: boolean;
+  /** Room token. */
+  roomToken: string;
 };
 
 export type NextcloudTalkAccountConfig = {
@@ -80,8 +96,16 @@ export type NextcloudTalkAccountConfig = {
   responsePrefix?: string;
   /** Media upload max size in MB. */
   mediaMaxMb?: number;
+  /** Emoji to auto-react with on every received message (best-effort acknowledgment). */
+  ackReaction?: string;
   /** Network policy overrides for self-hosted Nextcloud Talk on trusted private/internal hosts. */
   network?: NextcloudTalkNetworkConfig;
+  /**
+   * If true, send typing indicators while the bot is processing a message.
+   * Requires Nextcloud Talk with bot typing indicator support (Talk 21+).
+   * Default: false.
+   */
+  typingIndicator?: boolean;
 };
 
 export type NextcloudTalkConfig = {
@@ -136,10 +160,11 @@ export type NextcloudTalkTarget = {
 
 /** Incoming webhook payload from Nextcloud Talk. */
 export type NextcloudTalkWebhookPayload = {
-  type: "Create" | "Update" | "Delete";
+  type: "Create" | "Update" | "Delete" | "Like" | "Dislike";
   actor: NextcloudTalkActor;
   object: NextcloudTalkObject;
   target: NextcloudTalkTarget;
+  content?: string;
 };
 
 /** Result from sending a message to Nextcloud Talk. */
@@ -160,6 +185,17 @@ export type NextcloudTalkInboundMessage = {
   mediaType: string;
   timestamp: number;
   isGroupChat: boolean;
+};
+
+export type NextcloudTalkInboundReaction = {
+  messageId: string;
+  roomToken: string;
+  roomName: string;
+  actorId: string;
+  actorName: string;
+  emoji: string;
+  operation: "added" | "removed";
+  timestamp: number;
 };
 
 /** Headers sent by Nextcloud Talk webhook. */
@@ -190,6 +226,7 @@ export type NextcloudTalkWebhookServerOptions = {
     message: NextcloudTalkInboundMessage,
   ) => void | "processed" | "duplicate" | Promise<void | "processed" | "duplicate">;
   onMessage: (message: NextcloudTalkInboundMessage) => void | Promise<void>;
+  onReaction?: (reaction: NextcloudTalkInboundReaction) => void | Promise<void>;
   onError?: (error: Error) => void;
   abortSignal?: AbortSignal;
 };

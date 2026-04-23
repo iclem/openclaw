@@ -6,6 +6,7 @@ import {
   dispatchInboundReplyWithBase,
   logInboundDrop,
   readStoreAllowFromForDmPolicy,
+  resolveAckReaction,
   resolveAllowlistProviderRuntimeGroupPolicy,
   resolveDefaultGroupPolicy,
   resolveDmGroupAccessWithCommandGate,
@@ -25,8 +26,108 @@ import {
 } from "./policy.js";
 import { resolveNextcloudTalkRoomKind } from "./room-info.js";
 import { getNextcloudTalkRuntime } from "./runtime.js";
-import { sendMessageNextcloudTalk } from "./send.js";
+import { resolveTypingIndicatorEnabled, sendTypingNextcloudTalk } from "./send-typing.js";
+import { sendMessageNextcloudTalk, sendReactionNextcloudTalk } from "./send.js";
 import type { CoreConfig, NextcloudTalkInboundMessage } from "./types.js";
+
+export type NextcloudTalkMentionEntry = {
+  key: string;
+  type?: string;
+  id?: string;
+  mentionId?: string;
+  name?: string;
+};
+
+export type ParsedNextcloudTalkBody = {
+  /** Human-readable text with `{mentionN}` placeholders stripped. */
+  text: string;
+  /** True when the original message was structured JSON (as opposed to plain text). */
+  structured: boolean;
+  mentionEntries: NextcloudTalkMentionEntry[];
+};
+
+export function parseStructuredNextcloudTalkBody(raw: string): ParsedNextcloudTalkBody {
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith("{")) {
+    return { text: raw, structured: false, mentionEntries: [] };
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed) as {
+      message?: unknown;
+      parameters?: Record<
+        string,
+        {
+          type?: unknown;
+          id?: unknown;
+          name?: unknown;
+          "mention-id"?: unknown;
+          mentionId?: unknown;
+        }
+      >;
+    };
+    const rawMessage = typeof parsed.message === "string" ? parsed.message : raw;
+    const parameters =
+      parsed.parameters && typeof parsed.parameters === "object" ? parsed.parameters : {};
+    const mentionEntries = Object.entries(parameters).map(([key, value]) => ({
+      key,
+      type: typeof value?.type === "string" ? value.type : undefined,
+      id: typeof value?.id === "string" ? value.id : undefined,
+      mentionId:
+        typeof value?.["mention-id"] === "string"
+          ? value["mention-id"]
+          : typeof value?.mentionId === "string"
+            ? value.mentionId
+            : undefined,
+      name: typeof value?.name === "string" ? value.name : undefined,
+    }));
+    // Strip placeholder tokens like `{mention0}` or `{mention-user1}` injected by
+    // Nextcloud Talk so that command parsing and agent dispatch see clean text.
+    const placeholderKeys = Object.keys(parameters);
+    const text =
+      placeholderKeys.length > 0
+        ? placeholderKeys
+            .reduce((acc, key) => acc.replace(new RegExp(`\\{${key}\\}`, "g"), ""), rawMessage)
+            .trim()
+        : rawMessage.trim();
+    return { text, structured: true, mentionEntries };
+  } catch {
+    return { text: raw, structured: false, mentionEntries: [] };
+  }
+}
+
+export function resolveExplicitNextcloudTalkMention(params: {
+  mentionEntries: NextcloudTalkMentionEntry[];
+  account: ResolvedNextcloudTalkAccount;
+}): boolean {
+  const configuredApiUser = params.account.config.apiUser?.trim().toLowerCase();
+  const configuredName = params.account.name?.trim().toLowerCase();
+  const accountId = params.account.accountId.trim().toLowerCase();
+  const expectedIds = new Set<string>();
+  if (accountId) {
+    expectedIds.add(accountId);
+  }
+  if (configuredApiUser) {
+    expectedIds.add(configuredApiUser);
+    const apiLocalPart = configuredApiUser.split("@")[0]?.trim();
+    if (apiLocalPart) {
+      expectedIds.add(apiLocalPart.toLowerCase());
+    }
+  }
+  if (configuredName) {
+    expectedIds.add(configuredName);
+  }
+
+  return params.mentionEntries.some((entry) => {
+    if ((entry.type ?? "").toLowerCase() !== "user") {
+      return false;
+    }
+    const candidates = [entry.id, entry.mentionId, entry.name]
+      .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+      .map((value) => value.trim().toLowerCase());
+    return candidates.some((candidate) => expectedIds.has(candidate));
+  });
+}
 
 const CHANNEL_ID = "nextcloud-talk" as const;
 
@@ -68,6 +169,12 @@ export async function handleNextcloudTalkInbound(params: {
 
   const rawBody = message.text?.trim() ?? "";
   if (!rawBody) {
+    return;
+  }
+  const parsedBody = parseStructuredNextcloudTalkBody(rawBody);
+  // For structured bodies, use the stripped text; fall back to rawBody for plain text.
+  const effectiveBody = parsedBody.structured ? parsedBody.text : rawBody;
+  if (!effectiveBody) {
     return;
   }
 
@@ -134,7 +241,10 @@ export async function handleNextcloudTalkInbound(params: {
   });
   const useAccessGroups =
     (config.commands as Record<string, unknown> | undefined)?.useAccessGroups !== false;
-  const hasControlCommand = core.channel.text.hasControlCommand(rawBody, config as OpenClawConfig);
+  const hasControlCommand = core.channel.text.hasControlCommand(
+    effectiveBody,
+    config as OpenClawConfig,
+  );
   const access = resolveDmGroupAccessWithCommandGate({
     isGroup,
     dmPolicy,
@@ -205,10 +315,23 @@ export async function handleNextcloudTalkInbound(params: {
     return;
   }
 
+  // A structured message that is nothing but mention placeholders produces an empty
+  // effectiveBody after stripping.  Treat it as a mention-only ping with no actionable
+  // content and drop it silently — the agent has nothing to respond to.
+  if (parsedBody.structured && effectiveBody === "") {
+    runtime.log?.(`nextcloud-talk: drop room ${roomToken} (mention-only, no message body)`);
+    return;
+  }
+
   const mentionRegexes = core.channel.mentions.buildMentionRegexes(config as OpenClawConfig);
-  const wasMentioned = mentionRegexes.length
-    ? core.channel.mentions.matchesMentionPatterns(rawBody, mentionRegexes)
+  const explicitMention = resolveExplicitNextcloudTalkMention({
+    mentionEntries: parsedBody.mentionEntries,
+    account,
+  });
+  const regexMention = mentionRegexes.length
+    ? core.channel.mentions.matchesMentionPatterns(effectiveBody, mentionRegexes)
     : false;
+  const wasMentioned = explicitMention || regexMention;
   const shouldRequireMention = isGroup
     ? resolveNextcloudTalkRequireMention({
         roomConfig,
@@ -238,6 +361,24 @@ export async function handleNextcloudTalkInbound(params: {
     },
   });
 
+  // Send ack reaction (fire-and-forget) if configured.
+  // Room-level ackReaction takes precedence over the channel/account/global hierarchy.
+  const ackEmoji =
+    roomMatch.roomConfig?.ackReaction !== undefined
+      ? roomMatch.roomConfig.ackReaction.trim()
+      : resolveAckReaction(config as OpenClawConfig, route.agentId, {
+          channel: "nextcloud-talk",
+          accountId: account.accountId,
+        });
+  if (ackEmoji) {
+    sendReactionNextcloudTalk(roomToken, message.messageId, ackEmoji, {
+      accountId: account.accountId,
+      cfg: config,
+    }).catch((err: unknown) => {
+      runtime.log?.(`nextcloud-talk: ack reaction failed: ${String(err)}`);
+    });
+  }
+
   const fromLabel = isGroup ? `room:${roomName || roomToken}` : senderName || `user:${senderId}`;
   const storePath = core.channel.session.resolveStorePath(
     (config.session as Record<string, unknown> | undefined)?.store as string | undefined,
@@ -263,9 +404,9 @@ export async function handleNextcloudTalkInbound(params: {
 
   const ctxPayload = core.channel.reply.finalizeInboundContext({
     Body: body,
-    BodyForAgent: rawBody,
-    RawBody: rawBody,
-    CommandBody: rawBody,
+    BodyForAgent: effectiveBody,
+    RawBody: effectiveBody,
+    CommandBody: effectiveBody,
     From: isGroup ? `nextcloud-talk:room:${roomToken}` : `nextcloud-talk:${senderId}`,
     To: `nextcloud-talk:${roomToken}`,
     SessionKey: route.sessionKey,
@@ -286,6 +427,16 @@ export async function handleNextcloudTalkInbound(params: {
     CommandAuthorized: commandAuthorized,
   });
 
+  const typingEnabled = resolveTypingIndicatorEnabled({
+    accountTypingIndicator: account.config.typingIndicator,
+    roomTypingIndicator: roomConfig?.typingIndicator,
+  });
+
+  if (typingEnabled) {
+    // Signal that the bot is composing — fire and forget, do not await
+    void sendTypingNextcloudTalk(roomToken, true, { accountId: account.accountId });
+  }
+
   await dispatchInboundReplyWithBase({
     cfg: config as OpenClawConfig,
     channel: CHANNEL_ID,
@@ -302,12 +453,20 @@ export async function handleNextcloudTalkInbound(params: {
         accountId: account.accountId,
         statusSink,
       });
+      // Stop typing indicator after message is delivered
+      if (typingEnabled) {
+        void sendTypingNextcloudTalk(roomToken, false, { accountId: account.accountId });
+      }
     },
     onRecordError: (err) => {
       runtime.error?.(`nextcloud-talk: failed updating session meta: ${String(err)}`);
     },
     onDispatchError: (err, info) => {
       runtime.error?.(`nextcloud-talk ${info.kind} reply failed: ${String(err)}`);
+      // Stop typing indicator on dispatch error too
+      if (typingEnabled) {
+        void sendTypingNextcloudTalk(roomToken, false, { accountId: account.accountId });
+      }
     },
     replyOptions: {
       skillFilter: roomConfig?.skills,
