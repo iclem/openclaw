@@ -3,9 +3,10 @@ import {
   GROUP_POLICY_BLOCKED_LABEL,
   createChannelPairingController,
   deliverFormattedTextWithAttachments,
-  dispatchChannelMessageReplyWithBase,
+  dispatchInboundReplyWithBase,
   logInboundDrop,
   readStoreAllowFromForDmPolicy,
+  resolveAckReaction,
   resolveAllowlistProviderRuntimeGroupPolicy,
   resolveDefaultGroupPolicy,
   resolveDmGroupAccessWithCommandGate,
@@ -25,7 +26,8 @@ import {
 } from "./policy.js";
 import { resolveNextcloudTalkRoomKind } from "./room-info.js";
 import { getNextcloudTalkRuntime } from "./runtime.js";
-import { sendMessageNextcloudTalk } from "./send.js";
+import { resolveTypingIndicatorEnabled, sendTypingNextcloudTalk } from "./send-typing.js";
+import { sendMessageNextcloudTalk, sendReactionNextcloudTalk } from "./send.js";
 import type { CoreConfig, NextcloudTalkInboundMessage } from "./types.js";
 
 export type NextcloudTalkMentionEntry = {
@@ -102,13 +104,19 @@ export function resolveExplicitNextcloudTalkMention(params: {
   const configuredName = params.account.name?.trim().toLowerCase();
   const accountId = params.account.accountId.trim().toLowerCase();
   const expectedIds = new Set<string>();
-  if (accountId) expectedIds.add(accountId);
+  if (accountId) {
+    expectedIds.add(accountId);
+  }
   if (configuredApiUser) {
     expectedIds.add(configuredApiUser);
     const apiLocalPart = configuredApiUser.split("@")[0]?.trim();
-    if (apiLocalPart) expectedIds.add(apiLocalPart.toLowerCase());
+    if (apiLocalPart) {
+      expectedIds.add(apiLocalPart.toLowerCase());
+    }
   }
-  if (configuredName) expectedIds.add(configuredName);
+  if (configuredName) {
+    expectedIds.add(configuredName);
+  }
 
   return params.mentionEntries.some((entry) => {
     if ((entry.type ?? "").toLowerCase() !== "user") {
@@ -320,11 +328,10 @@ export async function handleNextcloudTalkInbound(params: {
     mentionEntries: parsedBody.mentionEntries,
     account,
   });
-  const wasMentioned =
-    explicitMention ||
-    (mentionRegexes.length
-      ? core.channel.mentions.matchesMentionPatterns(effectiveBody, mentionRegexes)
-      : false);
+  const regexMention = mentionRegexes.length
+    ? core.channel.mentions.matchesMentionPatterns(effectiveBody, mentionRegexes)
+    : false;
+  const wasMentioned = explicitMention || regexMention;
   const shouldRequireMention = isGroup
     ? resolveNextcloudTalkRequireMention({
         roomConfig,
@@ -353,6 +360,24 @@ export async function handleNextcloudTalkInbound(params: {
       id: isGroup ? roomToken : senderId,
     },
   });
+
+  // Send ack reaction (fire-and-forget) if configured.
+  // Room-level ackReaction takes precedence over the channel/account/global hierarchy.
+  const ackEmoji =
+    roomMatch.roomConfig?.ackReaction !== undefined
+      ? roomMatch.roomConfig.ackReaction.trim()
+      : resolveAckReaction(config as OpenClawConfig, route.agentId, {
+          channel: "nextcloud-talk",
+          accountId: account.accountId,
+        });
+  if (ackEmoji) {
+    sendReactionNextcloudTalk(roomToken, message.messageId, ackEmoji, {
+      accountId: account.accountId,
+      cfg: config,
+    }).catch((err: unknown) => {
+      runtime.log?.(`nextcloud-talk: ack reaction failed: ${String(err)}`);
+    });
+  }
 
   const fromLabel = isGroup ? `room:${roomName || roomToken}` : senderName || `user:${senderId}`;
   const storePath = core.channel.session.resolveStorePath(
@@ -402,7 +427,17 @@ export async function handleNextcloudTalkInbound(params: {
     CommandAuthorized: commandAuthorized,
   });
 
-  await dispatchChannelMessageReplyWithBase({
+  const typingEnabled = resolveTypingIndicatorEnabled({
+    accountTypingIndicator: account.config.typingIndicator,
+    roomTypingIndicator: roomConfig?.typingIndicator,
+  });
+
+  if (typingEnabled) {
+    // Signal that the bot is composing — fire and forget, do not await
+    void sendTypingNextcloudTalk(roomToken, true, { accountId: account.accountId });
+  }
+
+  await dispatchInboundReplyWithBase({
     cfg: config as OpenClawConfig,
     channel: CHANNEL_ID,
     accountId: account.accountId,
@@ -418,12 +453,20 @@ export async function handleNextcloudTalkInbound(params: {
         accountId: account.accountId,
         statusSink,
       });
+      // Stop typing indicator after message is delivered
+      if (typingEnabled) {
+        void sendTypingNextcloudTalk(roomToken, false, { accountId: account.accountId });
+      }
     },
     onRecordError: (err) => {
       runtime.error?.(`nextcloud-talk: failed updating session meta: ${String(err)}`);
     },
     onDispatchError: (err, info) => {
       runtime.error?.(`nextcloud-talk ${info.kind} reply failed: ${String(err)}`);
+      // Stop typing indicator on dispatch error too
+      if (typingEnabled) {
+        void sendTypingNextcloudTalk(roomToken, false, { accountId: account.accountId });
+      }
     },
     replyOptions: {
       skillFilter: roomConfig?.skills,
